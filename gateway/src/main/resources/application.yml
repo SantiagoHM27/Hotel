@@ -1,0 +1,33 @@
+server:
+  port: 8090
+
+spring:
+  application:
+    name: gateway
+  # Anade un servidor de recursos que utiliza tokens JWT para autenticar y autorizar el acceso a
+  # rutas protegidas. El servidor de recursos obtiene las claves públicas necesarias para verificar
+  # los tokens JWT de un conjunto de claves JSON Web (JWK Set) ubicado en http://localhost:9000/oauth2/jwks.
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: http://localhost:9000/oauth2/jwks
+  cloud:
+    gateway:
+      server:
+        webflux:
+          routes:
+            - id: msv-medicos
+              uri: lb://msv-medicos
+              predicates:
+                - Path=/api/medicos/**
+              filters:
+                - StripPrefix=2
+
+    loadbalancer:
+      enabled: true
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka
