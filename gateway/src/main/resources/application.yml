@@ -23,6 +23,12 @@ spring:
                 - Path=/api/medicos/**
               filters:
                 - StripPrefix=2
+              id: habitaciones
+              uri: lb://habitaciones
+              predicates:
+               - Path=/api/habitaciones/**
+              filters:
+                - StripPrefix=0
 
     loadbalancer:
       enabled: true
