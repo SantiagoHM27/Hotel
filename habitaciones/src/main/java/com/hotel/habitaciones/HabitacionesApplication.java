@@ -1,14 +1,12 @@
-package com.hotel.huespedes;
+package com.hotel.habitaciones;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.cloud.openfeign.EnableFeignClients;
 
 @SpringBootApplication(scanBasePackages = "com.hotel")
-@EnableFeignClients
-public class HuespedesApplication {
+public class HabitacionesApplication {
 
     public static void main(String[] args) {
-        SpringApplication.run(HuespedesApplication.class, args);
+        SpringApplication.run(HabitacionesApplication.class, args);
     }
 }

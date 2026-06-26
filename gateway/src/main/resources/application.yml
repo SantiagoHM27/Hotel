@@ -48,6 +48,11 @@ spring:
           predicates:
             - Path=/api/habitaciones/**
 
+        - id: reservas
+          uri: lb://RESERVAS
+          predicates:
+            - Path=/api/reservas/**
+
     loadbalancer:
       enabled: true
 
