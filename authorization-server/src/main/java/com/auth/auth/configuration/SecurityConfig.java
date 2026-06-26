@@ -30,8 +30,6 @@ import org.springframework.security.oauth2.server.authorization.config.annotatio
 import org.springframework.security.oauth2.server.authorization.config.annotation.web.configurers.OAuth2AuthorizationServerConfigurer;
 import org.springframework.security.oauth2.server.authorization.settings.AuthorizationServerSettings;
 import org.springframework.security.oauth2.server.authorization.settings.ClientSettings;
-import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
-import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
 import org.springframework.security.web.util.matcher.MediaTypeRequestMatcher;
@@ -47,124 +45,72 @@ import com.nimbusds.jose.jwk.RSAKey;
 import com.nimbusds.jose.jwk.source.ImmutableJWKSet;
 import com.nimbusds.jose.jwk.source.JWKSource;
 import com.nimbusds.jose.proc.SecurityContext;
+
 @Configuration
 @EnableWebSecurity
-
 public class SecurityConfig {
-
 
     @Bean
     @Order(1)
-    SecurityFilterChain authorizationServerSecurityFilterChain(HttpSecurity http)
-            throws Exception {
+    SecurityFilterChain authorizationServerSecurityFilterChain(HttpSecurity http) throws Exception {
 
         OAuth2AuthorizationServerConfigurer authorizationServerConfigurer =
                 OAuth2AuthorizationServerConfigurer.authorizationServer();
 
         http
-            // Aplica esta configuración solo a los endpoints del Authorization Server
-            .securityMatcher(authorizationServerConfigurer.getEndpointsMatcher())
-            .with(authorizationServerConfigurer, (authorizationServer) ->
-                authorizationServer
-                    .oidc(Customizer.withDefaults()) // Habilita OpenID Connect 1.0
-            )
-            .authorizeHttpRequests((authorize) ->
-                authorize
-                    .anyRequest().authenticated() // Todo requiere autenticación
-            )
-            .exceptionHandling((exceptions) -> exceptions
-                // Si el cliente espera HTML y no está autenticado → redirige a /login
-                .defaultAuthenticationEntryPointFor(
-                    new LoginUrlAuthenticationEntryPoint("/login"),
-                    new MediaTypeRequestMatcher(MediaType.TEXT_HTML)
+                .securityMatcher(authorizationServerConfigurer.getEndpointsMatcher())
+                .with(authorizationServerConfigurer, authorizationServer ->
+                        authorizationServer.oidc(Customizer.withDefaults())
                 )
-            );
+                .authorizeHttpRequests(authorize ->
+                        authorize.anyRequest().authenticated()
+                )
+                .exceptionHandling(exceptions -> exceptions
+                        .defaultAuthenticationEntryPointFor(
+                                new LoginUrlAuthenticationEntryPoint("/login"),
+                                new MediaTypeRequestMatcher(MediaType.TEXT_HTML)
+                        )
+                );
 
         return http.build();
     }
 
-    /**
-     * Configuración de seguridad principal de la aplicación.
-     * 
-     * - Permite acceso libre a /api/login
-     * - Requiere rol ADMIN para /admin/**
-     * - Requiere autenticación para el resto
-     * - Desactiva CSRF (útil para APIs REST)
-     * - Configura CORS para permitir peticiones desde Angular (localhost:4200)
-     * - Configura la aplicación como Resource Server usando JWT
-     */
-    @Bean 
+    @Bean
     @Order(2)
-    SecurityFilterChain defaultSecurityFilterChain(HttpSecurity http)
-            throws Exception {
+    SecurityFilterChain defaultSecurityFilterChain(HttpSecurity http) throws Exception {
 
         http
-            .authorizeHttpRequests((authorize) -> authorize
-                .requestMatchers("/api/login").permitAll()
-                .requestMatchers("/admin/**").hasRole("ADMIN")
-                .anyRequest().authenticated()
-            )
-            .csrf(csrf -> csrf.disable()) // Se desactiva CSRF para API REST
-            .cors(cors -> cors.configurationSource(request -> {
-                CorsConfiguration corsConfiguration = new CorsConfiguration();
-                corsConfiguration.setAllowedOrigins(List.of("http://localhost:4200"));
-                corsConfiguration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-                corsConfiguration.setAllowedHeaders(List.of("Authorization", "Content-Type"));
-                corsConfiguration.setAllowCredentials(true);
-                return corsConfiguration;
-            }))
-            // Configura la app como Resource Server que valida JWT
-            .oauth2ResourceServer(oauth2 -> oauth2.jwt(jwt ->
-                jwt.jwtAuthenticationConverter(jwtAuthenticationConverter())));
+                .csrf(csrf -> csrf.disable())
+                .cors(cors -> cors.configurationSource(request -> {
+                    CorsConfiguration corsConfiguration = new CorsConfiguration();
+                    corsConfiguration.setAllowedOrigins(List.of("http://localhost:4200"));
+                    corsConfiguration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+                    corsConfiguration.setAllowedHeaders(List.of("Authorization", "Content-Type"));
+                    corsConfiguration.setAllowCredentials(true);
+                    return corsConfiguration;
+                }))
+                .authorizeHttpRequests(authorize -> authorize
+                        .requestMatchers("/api/login").permitAll()
+                        .requestMatchers("/oauth2/jwks").permitAll()
+                        .requestMatchers("/.well-known/**").permitAll()
+                        .requestMatchers("/admin/**").hasRole("ADMIN")
+                        .anyRequest().authenticated()
+                );
 
         return http.build();
     }
 
-    /**
-     * Define el servicio que carga los usuarios desde base de datos.
-     * Usa tu implementación personalizada CustomUserDetails.
-     */
     @Bean
     UserDetailsService userDetailsService(CustomUserDetails customUserDetails) {
         return customUserDetails;
     }
 
-    /**
-     * Define el codificador de contraseñas.
-     * Se utiliza BCrypt para almacenar contraseñas de forma segura.
-     */
     @Bean
     PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
     }
 
-    /**
-     * Personaliza cómo se extraen los roles desde el JWT.
-     * 
-     * - Lee los roles desde el claim "roles".
-     * - Elimina el prefijo automático "ROLE_" para que coincida con tu base de datos.
-     */
     @Bean
-    JwtAuthenticationConverter jwtAuthenticationConverter() {
-        JwtGrantedAuthoritiesConverter grantedAuthoritiesConverter = new JwtGrantedAuthoritiesConverter();
-        grantedAuthoritiesConverter.setAuthoritiesClaimName("roles");
-        grantedAuthoritiesConverter.setAuthorityPrefix("");
-
-        JwtAuthenticationConverter jwtAuthenticationConverter = new JwtAuthenticationConverter();
-        jwtAuthenticationConverter.setJwtGrantedAuthoritiesConverter(grantedAuthoritiesConverter);
-        return jwtAuthenticationConverter;
-    }
-
-    /**
-     * Registra un cliente OAuth2 en memoria.
-     * 
-     * - Define clientId y clientSecret.
-     * - Usa Authorization Code + Refresh Token.
-     * - Define URIs de redirección.
-     * - Habilita scopes OpenID y Profile.
-     * - Requiere consentimiento del usuario.
-     */
-    @Bean 
     RegisteredClientRepository registeredClientRepository() {
 
         RegisteredClient oidcClient = RegisteredClient.withId(UUID.randomUUID().toString())
@@ -183,13 +129,7 @@ public class SecurityConfig {
         return new InMemoryRegisteredClientRepository(oidcClient);
     }
 
-    /**
-     * Genera un par de claves RSA para firmar los JWT.
-     * 
-     * - Crea una clave pública y privada.
-     * - Se usa para firmar y validar tokens.
-     */
-    @Bean 
+    @Bean
     JWKSource<SecurityContext> jwkSource() {
 
         KeyPair keyPair = generateRsaKey();
@@ -206,10 +146,6 @@ public class SecurityConfig {
         return new ImmutableJWKSet<>(jwkSet);
     }
 
-    /**
-     * Genera un KeyPair RSA de 2048 bits.
-     * Se usa para firmar los tokens JWT.
-     */
     private static KeyPair generateRsaKey() {
         try {
             KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("RSA");
@@ -220,31 +156,16 @@ public class SecurityConfig {
         }
     }
 
-    /**
-     * Configura el decodificador JWT usando la clave pública.
-     * Permite validar la firma de los tokens.
-     */
     @Bean
     JwtDecoder jwtDecoder(JWKSource<SecurityContext> jwkSource) {
         return OAuth2AuthorizationServerConfiguration.jwtDecoder(jwkSource);
     }
 
-    /**
-     * Configuración general del Authorization Server.
-     * Aquí podrías personalizar issuer, endpoints, etc.
-     */
     @Bean
     AuthorizationServerSettings authorizationServerSettings() {
         return AuthorizationServerSettings.builder().build();
     }
 
-    /**
-     * Inicializa datos en la base de datos al arrancar la aplicación.
-     * 
-     * - Crea roles ROLE_ADMIN y ROLE_USER si no existen.
-     * - Crea usuario admin/admin con rol ADMIN.
-     * - Crea usuario usuario/usuario con rol USER.
-     */
     @Bean
     CommandLineRunner initData(UsuarioRepository userRepo,
                                RolRepository rolRepo,
