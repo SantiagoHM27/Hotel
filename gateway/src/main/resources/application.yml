@@ -4,31 +4,49 @@ server:
 spring:
   application:
     name: gateway
-  # Anade un servidor de recursos que utiliza tokens JWT para autenticar y autorizar el acceso a
-  # rutas protegidas. El servidor de recursos obtiene las claves públicas necesarias para verificar
-  # los tokens JWT de un conjunto de claves JSON Web (JWK Set) ubicado en http://localhost:9000/oauth2/jwks.
+
   security:
     oauth2:
       resourceserver:
         jwt:
           jwk-set-uri: http://localhost:9000/oauth2/jwks
+
   cloud:
+    compatibility-verifier:
+      enabled: false
+
     gateway:
-      server:
-        webflux:
-          routes:
-            - id: msv-medicos
-              uri: lb://msv-medicos
-              predicates:
-                - Path=/api/medicos/**
-              filters:
-                - StripPrefix=2
-              id: habitaciones
-              uri: lb://habitaciones
-              predicates:
-               - Path=/api/habitaciones/**
-              filters:
-                - StripPrefix=0
+      globalcors:
+        corsConfigurations:
+          '[/**]':
+            allowedOrigins:
+              - "http://localhost:4200"
+            allowedMethods:
+              - GET
+              - POST
+              - PUT
+              - PATCH
+              - DELETE
+              - OPTIONS
+            allowedHeaders:
+              - "*"
+            allowCredentials: true
+
+      routes:
+        - id: authorization-server
+          uri: lb://AUTHORIZATION-SERVER
+          predicates:
+            - Path=/api/login
+
+        - id: huespedes
+          uri: lb://HUESPEDES
+          predicates:
+            - Path=/api/huespedes/**
+
+        - id: habitaciones
+          uri: lb://HABITACIONES
+          predicates:
+            - Path=/api/habitaciones/**
 
     loadbalancer:
       enabled: true
@@ -37,3 +55,5 @@ eureka:
   client:
     service-url:
       defaultZone: http://localhost:8761/eureka
+  instance:
+    prefer-ip-address: true
