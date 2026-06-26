@@ -1,5 +1,8 @@
 package com.hotel.commons.exceptions;
 
+import com.hotel.commons.dto.CustomErrorResponse;
+import feign.FeignException;
+import feign.RetryableException;
 import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -10,46 +13,51 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
-import com.hotel.commons.dto.CustomErrorResponse;
-import com.hotel.commons.exceptions.RecursoDuplicadoException;
-
-import feign.FeignException;
-import feign.RetryableException;
-
 import java.util.NoSuchElementException;
 
 @RestControllerAdvice
 @Slf4j
 public class GlobalHandlerException {
+
     @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<CustomErrorResponse>handleIllegalArgumentException(IllegalArgumentException e) {
-        log.error("Error en la peticion {}", e.getMessage());
+    public ResponseEntity<CustomErrorResponse> handleIllegalArgumentException(IllegalArgumentException e) {
+        log.error("Error en la petición {}", e.getMessage());
         return ResponseEntity.badRequest().body(
                 new CustomErrorResponse(HttpStatus.BAD_REQUEST.value(), e.getMessage())
         );
     }
+
     @ExceptionHandler(ConstraintViolationException.class)
     public ResponseEntity<CustomErrorResponse> handleConstraintViolationException(ConstraintViolationException e) {
         log.error("Violación de restricción: {}", e.getMessage());
         return ResponseEntity.badRequest()
                 .body(new CustomErrorResponse(HttpStatus.BAD_REQUEST.value(), "Violación de restricción: " + e.getMessage()));
     }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<CustomErrorResponse> handleMethodArgumentNotValidException(MethodArgumentNotValidException e) {
         String mensaje = e.getBindingResult().getFieldErrors().stream()
                 .map(err -> err.getField() + ": " + err.getDefaultMessage())
                 .findFirst()
                 .orElse("Error de validación en los datos enviados");
+
         log.error("Error de validación de argumentos: {}", mensaje);
+
         return ResponseEntity.badRequest()
                 .body(new CustomErrorResponse(HttpStatus.BAD_REQUEST.value(), mensaje));
     }
 
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
     public ResponseEntity<CustomErrorResponse> handleMethodArgumentTypeMismatchException(MethodArgumentTypeMismatchException e) {
-        String mensaje = String.format("El parámetro '%s' con valor '%s' no pudo ser convertido al tipo '%s'",
-                e.getName(), e.getValue(), e.getRequiredType().getSimpleName());
+        String mensaje = String.format(
+                "El parámetro '%s' con valor '%s' no pudo ser convertido al tipo '%s'",
+                e.getName(),
+                e.getValue(),
+                e.getRequiredType() != null ? e.getRequiredType().getSimpleName() : "desconocido"
+        );
+
         log.error("Error de conversión: {}", mensaje);
+
         return ResponseEntity.badRequest()
                 .body(new CustomErrorResponse(HttpStatus.BAD_REQUEST.value(), mensaje));
     }
@@ -61,6 +69,7 @@ public class GlobalHandlerException {
                 new CustomErrorResponse(HttpStatus.CONFLICT.value(), e.getMessage())
         );
     }
+
     @ExceptionHandler(NoSuchElementException.class)
     public ResponseEntity<CustomErrorResponse> handleNoSuchElementException(NoSuchElementException e) {
         log.warn("No se encontró recurso: {}", e.getMessage());
@@ -75,13 +84,6 @@ public class GlobalHandlerException {
                 .body(new CustomErrorResponse(HttpStatus.NOT_FOUND.value(), e.getMessage()));
     }
 
-    @ExceptionHandler(EntidadRelacionadaException.class)
-    public ResponseEntity<CustomErrorResponse> handleEntidadRelacionadaException(EntidadRelacionadaException e) {
-        log.warn("Error al eliminar un recurso: {}", e.getMessage());
-        return ResponseEntity.status(HttpStatus.CONFLICT)
-                .body(new CustomErrorResponse(HttpStatus.CONFLICT.value(), e.getMessage()));
-    }
-
     @ExceptionHandler(RecursoNoEncontradoException.class)
     public ResponseEntity<CustomErrorResponse> handleRecursoNoEncontradoException(RecursoNoEncontradoException e) {
         log.warn("No se encontró el recurso: {}", e.getMessage());
@@ -89,11 +91,36 @@ public class GlobalHandlerException {
                 .body(new CustomErrorResponse(HttpStatus.NOT_FOUND.value(), e.getMessage()));
     }
 
+    @ExceptionHandler(RecursoDuplicadoException.class)
+    public ResponseEntity<CustomErrorResponse> handleRecursoDuplicadoException(RecursoDuplicadoException e) {
+        log.warn("Recurso duplicado: {}", e.getMessage());
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new CustomErrorResponse(HttpStatus.CONFLICT.value(), e.getMessage()));
+    }
+
+    @ExceptionHandler(EntidadRelacionadaException.class)
+    public ResponseEntity<CustomErrorResponse> handleEntidadRelacionadaException(EntidadRelacionadaException e) {
+        log.warn("Conflicto por entidad relacionada: {}", e.getMessage());
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new CustomErrorResponse(HttpStatus.CONFLICT.value(), e.getMessage()));
+    }
+
+    @ExceptionHandler(TransicionEstadoInvalidaException.class)
+    public ResponseEntity<CustomErrorResponse> handleTransicionEstadoInvalidaException(
+            TransicionEstadoInvalidaException e) {
+
+        log.warn("Transición de estado inválida: {}", e.getMessage());
+
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new CustomErrorResponse(HttpStatus.CONFLICT.value(), e.getMessage()));
+    }
+
     @ExceptionHandler(FeignException.class)
     public ResponseEntity<CustomErrorResponse> handleGenericFeignException(FeignException e) {
-        log.error("Error en la comunicación Feign: " + e.getMessage());
+        log.error("Error en la comunicación Feign: {}", e.getMessage());
 
         int status = e.status() > 0 ? e.status() : HttpStatus.INTERNAL_SERVER_ERROR.value();
+
         String message = switch (status) {
             case 400 -> "Solicitud incorrecta al servicio remoto.";
             case 401 -> "No autorizado para acceder al servicio remoto.";
@@ -103,32 +130,30 @@ public class GlobalHandlerException {
             case 503 -> "Servicio remoto no disponible.";
             default -> "Error al comunicarse con el servicio remoto.";
         };
-        CustomErrorResponse response = new CustomErrorResponse(status, message);
 
-        return ResponseEntity.status(status).body(response);
+        return ResponseEntity.status(status)
+                .body(new CustomErrorResponse(status, message));
     }
-    
+
     @ExceptionHandler(RetryableException.class)
     public ResponseEntity<CustomErrorResponse> handleRetryable(RetryableException e) {
-    	log.error("Servicio remoto no disponible o no responde: " + e.getMessage());
-    	CustomErrorResponse response = new CustomErrorResponse(HttpStatus.SERVICE_UNAVAILABLE.value(),
-    			"Servicio remoto no disponible o no responde");
+        log.error("Servicio remoto no disponible o no responde: {}", e.getMessage());
 
-        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(response);
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(new CustomErrorResponse(
+                        HttpStatus.SERVICE_UNAVAILABLE.value(),
+                        "Servicio remoto no disponible o no responde"
+                ));
     }
-
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<CustomErrorResponse> handleGeneralException(Exception e) {
         log.error("Error interno del servidor: {}", e.getMessage(), e);
+
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(new CustomErrorResponse(HttpStatus.INTERNAL_SERVER_ERROR.value(),
-                        "Error interno del servidor. Por favor, contacte al administrador."));
-    }
-    
-    @ExceptionHandler(RecursoDuplicadoException.class)
-    public ResponseEntity<CustomErrorResponse> handleRecursoDuplicadoException(RecursoDuplicadoException e) {
-        return ResponseEntity.status(HttpStatus.CONFLICT)
-                .body(new CustomErrorResponse(HttpStatus.CONFLICT.value(), e.getMessage()));
+                .body(new CustomErrorResponse(
+                        HttpStatus.INTERNAL_SERVER_ERROR.value(),
+                        "Error interno del servidor. Por favor, contacte al administrador."
+                ));
     }
 }
